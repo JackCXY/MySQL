@@ -3443,6 +3443,16 @@ err_exit:
   return err;
 }
 
+/** wrapped function for Row_sel_get_clust_rec_for_mysql */
+bool get_clust_rec(row_prebuilt_t *prebuilt, dict_index_t *index,
+                   const rec_t *rec, que_thr_t *thr, const rec_t **out_rec,
+                   ulint **offsets, mem_heap_t **offset_heap,
+                   const dtuple_t **vrow, mtr_t *mtr) {
+  return Row_sel_get_clust_rec_for_mysql()(prebuilt, index, rec, thr, out_rec,
+                                           offsets, offset_heap, vrow, mtr,
+                                           nullptr);
+}
+
 /** Restores cursor position after it has been stored. We have to take into
  account that the record cursor was positioned on may have been deleted.
  Then we may have to move the cursor one step up or down.

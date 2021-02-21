@@ -773,6 +773,9 @@ struct dtuple_t {
   int compare(const rec_t *rec, const dict_index_t *index, const ulint *offsets,
               ulint *matched_fields) const;
 
+  int compare(const rec_t *rec, const dict_index_t *index,
+              const dict_index_t *clust_index, const ulint *offsets);
+
   /** Compare a data tuple to a physical record.
   @param[in]	rec		record
   @param[in]	index		index

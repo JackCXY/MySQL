@@ -1125,8 +1125,69 @@ void test_cmp_data_data(ulint len) {
 
 #endif /* UNIV_COMPILE_TEST_FUNCS */
 
+int cmp_sec_dtuple_pri_rec_with_match(const dtuple_t *dtuple, const rec_t *rec,
+                                      const dict_index_t *index,
+                                      const dict_index_t *clust_index,
+                                      const ulint *offsets, ulint fields) {
+  ut_ad(dtuple_check_typed(dtuple));
+  ut_ad(rec_offs_validate(rec, clust_index, offsets));
+
+  ut_ad(fields > 0 && fields <= dtuple_get_n_fields(dtuple));
+
+  for (ulint i = 0; i < fields; i++) {
+    auto dtuple_field = dtuple_get_nth_field(dtuple, i);
+    auto dtuple_b_ptr =
+        static_cast<const byte *>(dfield_get_data(dtuple_field));
+    auto type = dfield_get_type(dtuple_field);
+    auto dtuple_len = dfield_get_len(dtuple_field);
+
+    ut_ad(!rec_offs_nth_extern(offsets, i));
+    ut_ad(!rec_offs_nth_default(offsets, i));
+
+    auto pos_in_clust = dict_index_get_nth_field_pos(clust_index, index, i);
+
+    ulint rec_len;
+    auto rec_b_ptr = rec_get_nth_field(rec, offsets, pos_in_clust, &rec_len);
+    ut_ad(!dfield_is_ext(dtuple_field));
+
+    int ret;
+    if (dfield_is_multi_value(dtuple_field) &&
+        (dtuple_len == UNIV_MULTI_VALUE_ARRAY_MARKER ||
+         dtuple_len == UNIV_NO_INDEX_VALUE)) {
+      // If the value is parsed from array, or NULL, then the calculation can be
+      // finished in a normal way in the else branch
+      ut_ad(index->is_multi_value());
+      if (dtuple_len == UNIV_NO_INDEX_VALUE) {
+        ret = 1;
+      } else {
+        multi_value_data *mv_data =
+            static_cast<multi_value_data *>(dtuple_field->data);
+        ret = mv_data->has(type, rec_b_ptr, rec_len) ? 0 : 1;
+      }
+
+    } else {
+      // For now, change buffering is only supported on indexes with asc order
+      if (dtuple_len != UNIV_SQL_NULL && rec_len != UNIV_SQL_NULL)
+        rec_len = dtuple_len;
+      ret = cmp_data(
+          type->mtype, type->prtype,
+          dict_index_is_ibuf(index) || index->get_field(i)->is_ascending,
+          dtuple_b_ptr, dtuple_len, rec_b_ptr, rec_len);
+    }
+
+    if (ret) return (ret);
+  }
+  return (0);
+}
+
 int dtuple_t::compare(const rec_t *rec, const dict_index_t *index,
                       const ulint *offsets, ulint *matched_fields) const {
   return (cmp_dtuple_rec_with_match_low(this, rec, index, offsets, n_fields_cmp,
                                         matched_fields));
+}
+
+int dtuple_t::compare(const rec_t *rec, const dict_index_t *index,
+                      const dict_index_t *clust_index, const ulint *offsets) {
+  return (cmp_sec_dtuple_pri_rec_with_match(this, rec, index, clust_index,
+                                            offsets, n_fields_cmp));
 }

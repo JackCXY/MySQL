@@ -15997,9 +15997,15 @@ int ha_innobase::records(ha_rows *num_rows) /*!< out: number of rows */
 
   m_prebuilt->trx->op_info = "counting records";
 
-  dict_index_t *index = m_prebuilt->table->first_index();
+  dict_index_t *index = nullptr;
 
-  ut_ad(index->is_clustered());
+  if (m_prebuilt->parallel_count_index == MAX_KEY) {
+    index = m_prebuilt->table->first_index();
+    ut_ad(index->is_clustered());
+
+  } else {
+    index = innobase_get_index(m_prebuilt->parallel_count_index);
+  }
 
   m_prebuilt->index_usable = index->is_usable(m_prebuilt->trx);
 

@@ -4405,7 +4405,7 @@ funct_exit:
 @return DB_SUCCESS or error code. */
 dberr_t row_mysql_parallel_select_count_star(
     trx_t *trx, std::vector<dict_index_t *> &indexes, size_t max_threads,
-    ulint *n_rows) {
+    ulint *n_rows, row_prebuilt_t *prebuilt) {
   ut_a(!indexes.empty());
   using Shards = Counter::Shards<Parallel_reader::MAX_THREADS>;
 
@@ -4428,6 +4428,7 @@ dberr_t row_mysql_parallel_select_count_star(
 
   for (auto index : indexes) {
     Parallel_reader::Config config(FULL_SCAN, index);
+    config.m_prebuilt = prebuilt;
 
     success =
       reader.add_scan(trx, config, [&](const Parallel_reader::Ctx *ctx) {
@@ -4665,7 +4666,7 @@ dberr_t row_scan_index_for_mysql(row_prebuilt_t *prebuilt, dict_index_t *index,
   DBUG_EXECUTE_IF("ib_disable_parallel_read", goto skip_parallel_read;);
 
   if (prebuilt->trx->isolation_level > TRX_ISO_READ_UNCOMMITTED &&
-      prebuilt->select_lock_type == LOCK_NONE && index->is_clustered() &&
+      prebuilt->select_lock_type == LOCK_NONE &&
       (check_keys || prebuilt->trx->mysql_n_tables_locked == 0) &&
       !prebuilt->ins_sel_stmt) {
 
@@ -4687,7 +4688,7 @@ dberr_t row_scan_index_for_mysql(row_prebuilt_t *prebuilt, dict_index_t *index,
 
       if (!check_keys) {
         return (row_mysql_parallel_select_count_star(trx, indexes, n_threads,
-                                                     n_rows));
+                                                     n_rows, prebuilt));
       }
 
       return (parallel_check_table(trx, index, n_threads, n_rows));

@@ -461,7 +461,7 @@ dberr_t row_rename_table_for_mysql(const char *old_name, const char *new_name,
 @return DB_SUCCESS or error code. */
 dberr_t row_mysql_parallel_select_count_star(
     trx_t *trx, std::vector<dict_index_t *> &indexes, size_t max_threads,
-    ulint *n_rows);
+    ulint *n_rows, row_prebuilt_t *prebuilt = nullptr);
 
 /** Scans an index for either COUNT(*) or CHECK TABLE.
 If CHECK TABLE; Checks that the index contains entries in an ascending order,
@@ -677,6 +677,9 @@ struct row_prebuilt_t {
   not all control paths lead to setting this field to true in case a matching
   row is visited. */
   bool m_stop_tuple_found;
+
+  /** used for parallel query */
+  ulint parallel_count_index{MAX_KEY};
 
  private:
   /** Set to true iff we are inside read_range_first() or read_range_next() */

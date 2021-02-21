@@ -338,10 +338,9 @@ dberr_t PCursor::move_to_next_block(dict_index_t *index) {
   return (DB_SUCCESS);
 }
 
-bool Parallel_reader::Scan_ctx::check_visibility(const rec_t *&rec,
-                                                 ulint *&offsets,
-                                                 mem_heap_t *&heap,
-                                                 mtr_t *mtr) {
+bool Parallel_reader::Scan_ctx::check_visibility(
+    const rec_t *&rec, const rec_t *&clust_rec, ulint *&offsets,
+    ulint *&clust_offsets, mem_heap_t *&heap, mtr_t *mtr) {
   const auto table_name = m_config.m_index->table->name;
 
   ut_ad(!m_trx || m_trx->read_view == nullptr ||
@@ -376,17 +375,40 @@ bool Parallel_reader::Scan_ctx::check_visibility(const rec_t *&rec,
         }
       }
     } else {
-      /* Secondary index scan not supported yet. */
-      ut_error;
 
       auto max_trx_id = page_get_max_trx_id(page_align(rec));
 
       ut_ad(max_trx_id > 0);
 
-      if (!view->sees(max_trx_id)) {
-        /* FIXME: This is not sufficient. We may need to read in the cluster
-        index record to be 100% sure. */
-        return (false);
+      row_prebuilt_t *prebuilt = m_config.m_prebuilt;
+
+      if (!view->sees(max_trx_id) ||
+          (prebuilt && prebuilt->need_to_access_clustered)) {
+        if (prebuilt) {
+          if (prebuilt->sel_graph == nullptr) row_prebuild_sel_graph(prebuilt);
+          ut_ad(prebuilt->sel_graph);
+
+          que_thr_t *thr = que_fork_get_first_thr(prebuilt->sel_graph);
+          int err =
+              get_clust_rec(prebuilt, m_config.m_index, rec, thr, &clust_rec,
+                            &clust_offsets, &heap, nullptr, mtr);
+          if (err != DB_SUCCESS)
+            return (false);
+          else {
+            if (clust_rec == nullptr) {
+              /** the record does not exist in this read view */
+              ut_ad(prebuilt->select_lock_type == LOCK_NONE);
+              return false;
+            } else if (rec_get_deleted_flag(clust_rec, m_config.m_is_compact)) {
+              /** the record is deleted marked; we can skip it */
+              return false;
+            } else {
+              return true;
+            }
+          }
+        } else {
+          return false;
+        }
       }
     }
   }
@@ -555,13 +577,25 @@ dberr_t Parallel_reader::Ctx::traverse_recs(PCursor *pcursor, mtr_t *mtr) {
       m_first_rec = true;
     }
 
-    ulint offsets_[REC_OFFS_NORMAL_SIZE];
-    ulint *offsets = offsets_;
+    ulint offsets_[REC_OFFS_NORMAL_SIZE], clust_offsets_[REC_OFFS_NORMAL_SIZE];
+    ulint *offsets{offsets_}, *clust_offsets{clust_offsets_};
 
     rec_offs_init(offsets_);
+    rec_offs_init(clust_offsets_);
 
+    const rec_t *clust_rec = nullptr;
     const rec_t *rec = page_cur_get_rec(cur);
+
     offsets = rec_get_offsets(rec, index, offsets, ULINT_UNDEFINED, &heap);
+    clust_offsets =
+        rec_get_offsets(rec, index, clust_offsets, ULINT_UNDEFINED, &heap);
+
+    bool skip{};
+
+    if (page_is_leaf(cur->block->frame)) {
+      skip = !m_scan_ctx->check_visibility(rec, clust_rec, offsets,
+                                           clust_offsets, heap, mtr);
+    }
 
     if (end_tuple != nullptr) {
       ut_ad(rec != nullptr);
@@ -574,19 +608,23 @@ dberr_t Parallel_reader::Ctx::traverse_recs(PCursor *pcursor, mtr_t *mtr) {
       Since the range creation is based on the key values and the key value do
       not ever change the latest (non-MVCC) version of the record should always
       tell us correctly whether we're within the range or outside of it. */
-      auto ret = end_tuple->compare(rec, index, offsets);
+
+      int ret;
+      row_prebuilt_t *prebuilt = m_scan_ctx->m_config.m_prebuilt;
+      if (!m_scan_ctx->m_config.m_index->is_clustered() &&
+          prebuilt->need_to_access_clustered) {
+        dict_index_t *clust_index = prebuilt->table->first_index();
+        ret = ((dtuple_t *)end_tuple)
+                  ->compare(clust_rec, index, clust_index, clust_offsets);
+      } else {
+        ret = end_tuple->compare(rec, index, offsets);
+      }
 
       /* Note: The range creation doesn't use MVCC. Therefore it's possible
       that the range boundary entry could have been deleted. */
       if (ret <= 0) {
         break;
       }
-    }
-
-    bool skip{};
-
-    if (page_is_leaf(cur->block->frame)) {
-      skip = !m_scan_ctx->check_visibility(rec, offsets, heap, mtr);
     }
 
     if (!skip) {

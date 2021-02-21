@@ -177,7 +177,8 @@ class Parallel_reader {
           m_is_compact(config.m_is_compact),
           m_page_size(config.m_page_size),
           m_read_level(config.m_read_level),
-          m_partition_id(config.m_partition_id) {}
+          m_partition_id(config.m_partition_id),
+          m_prebuilt(config.m_prebuilt) {}
 
     /** Range to scan. */
     const Scan_range m_scan_range;
@@ -197,6 +198,9 @@ class Parallel_reader {
     /** Partition id if the index to be scanned belongs to a partitioned table,
     else std::numeric_limits<size_t>::max(). */
     size_t m_partition_id{std::numeric_limits<size_t>::max()};
+
+    /** prebuilt structure */
+    row_prebuilt_t *m_prebuilt{nullptr};
   };
 
   /** Thread related context information. */
@@ -589,8 +593,10 @@ class Parallel_reader::Scan_ctx {
                                 built from the undo log.
   @param[in,out]  mtr           Mini-transaction covering the read.
   @return true if row is visible to the transaction. */
-  bool check_visibility(const rec_t *&rec, ulint *&offsets, mem_heap_t *&heap,
-                        mtr_t *mtr) MY_ATTRIBUTE((warn_unused_result));
+  bool check_visibility(const rec_t *&rec, const rec_t *&clust_rec,
+                        ulint *&offsets, ulint *&clust_offsets,
+                        mem_heap_t *&heap, mtr_t *mtr)
+      MY_ATTRIBUTE((warn_unused_result));
 
   /** Create an execution context for a range and add it to
   the Parallel_reader's run queue.
@@ -728,7 +734,11 @@ class Parallel_reader::Ctx {
   @return true if row is visible to the transaction. */
   bool is_rec_visible(const rec_t *&rec, ulint *&offsets, mem_heap_t *&heap,
                       mtr_t *mtr) {
-    return (m_scan_ctx->check_visibility(rec, offsets, heap, mtr));
+    const rec_t *clust_rec = nullptr;
+    ulint *clust_offsets = nullptr;
+
+    return (m_scan_ctx->check_visibility(rec, clust_rec, offsets, clust_offsets,
+                                         heap, mtr));
   }
 
  private:

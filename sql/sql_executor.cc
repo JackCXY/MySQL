@@ -4317,7 +4317,7 @@ ulonglong get_exact_record_count(QEP_TAB *qep_tab, uint table_count,
 
     if (qt->type() == JT_ALL || (qt->index() == qt->table()->s->primary_key &&
                                  qt->table()->file->primary_key_is_clustered()))
-      *error = qt->table()->file->ha_records(&tmp);
+      *error = qt->table()->file->ha_records(&tmp, MAX_KEY);
     else
       *error = qt->table()->file->ha_records(&tmp, qt->index());
     if (*error != 0) {

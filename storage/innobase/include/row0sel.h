@@ -230,6 +230,11 @@ dberr_t row_count_rtree_recs(
     ulint *n_dups);           /*!< out: number of dup entries
                               seen in the consistent read */
 
+bool get_clust_rec(row_prebuilt_t *prebuilt, dict_index_t *index,
+                   const rec_t *rec, que_thr_t *thr, const rec_t **out_rec,
+                   ulint **offsets, mem_heap_t **offset_heap,
+                   const dtuple_t **vrow, mtr_t *mtr);
+
 /** Read the max AUTOINC value from an index.
  @return DB_SUCCESS if all OK else error code */
 dberr_t row_search_max_autoinc(

@@ -244,8 +244,9 @@ class ha_innobase : public handler {
 
   int records(ha_rows *num_rows) override;
 
-  int records_from_index(ha_rows *num_rows, uint) override {
+  int records_from_index(ha_rows *num_rows, uint keyno) override {
     /* Force use of cluster index until we implement sec index parallel scan. */
+    m_prebuilt->parallel_count_index = keyno;
     return ha_innobase::records(num_rows);
   }
 
